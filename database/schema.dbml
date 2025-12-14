@@ -1,0 +1,109 @@
+// DBML schema for Travel Social Network (metadata store)
+// Designed for dbdiagram.io (DBML)
+//
+// Storage split (recommended):
+// - PostgreSQL: users, posts, comments, reactions, follows, places, media metadata
+// - Object Storage + CDN: actual media binaries (images/videos)
+
+Table users {
+  id bigint [pk]
+  username varchar(64) [not null, unique]
+  created_at timestamptz [not null]
+
+  Note: 'Путешественник'
+}
+
+Table places {
+  id bigint [pk]
+  name varchar(128) [not null]
+  country varchar(64)
+  lat decimal(9,6)
+  lon decimal(9,6)
+  created_at timestamptz [not null]
+
+  Indexes {
+    (name)
+    (country)
+  }
+}
+
+Table posts {
+  id bigint [pk]
+  user_id bigint [not null, ref: > users.id]
+  place_id bigint [not null, ref: > places.id]
+  text text
+  created_at timestamptz [not null]
+
+  // denormalized counters (optional; can also be in separate aggregates table)
+  comments_count int [not null, default: 0]
+  likes_count int [not null, default: 0]
+  dislikes_count int [not null, default: 0]
+
+  Indexes {
+    (user_id, created_at) [name: "idx_posts_user_created_at"]
+    (place_id, created_at) [name: "idx_posts_place_created_at"]
+    (created_at) [name: "idx_posts_created_at"]
+  }
+}
+
+Table media {
+  id uuid [pk]
+  url text [not null]
+  content_type varchar(64) [not null] // image/jpeg, image/webp, video/mp4 ...
+  size_bytes int [not null]
+  created_at timestamptz [not null]
+
+  Note: 'Только метаданные. Бинарь хранится в object storage + CDN'
+}
+
+Table post_media {
+  post_id bigint [not null, ref: > posts.id]
+  media_id uuid [not null, ref: > media.id]
+  position int [not null, default: 0]
+
+  Indexes {
+    (post_id, position) [name: "idx_post_media_post_position"]
+    (media_id) [name: "idx_post_media_media"]
+  }
+
+  Note: 'Связь post -> media (1..N)'
+}
+
+Table comments {
+  id bigint [pk]
+  post_id bigint [not null, ref: > posts.id]
+  user_id bigint [not null, ref: > users.id]
+  message text [not null]
+  created_at timestamptz [not null]
+
+  Indexes {
+    (post_id, created_at) [name: "idx_comments_post_created_at"]
+    (user_id, created_at) [name: "idx_comments_user_created_at"]
+  }
+}
+
+Table reactions {
+  post_id bigint [not null, ref: > posts.id]
+  user_id bigint [not null, ref: > users.id]
+  value smallint [not null, note: '1=like, -1=dislike']
+  created_at timestamptz [not null]
+
+  Indexes {
+    (post_id, user_id) [pk, name: "pk_reactions_post_user"]
+    (post_id) [name: "idx_reactions_post"]
+    (user_id) [name: "idx_reactions_user"]
+  }
+}
+
+Table follows {
+  follower_user_id bigint [not null, ref: > users.id]
+  followee_user_id bigint [not null, ref: > users.id]
+  created_at timestamptz [not null]
+
+  Indexes {
+    (follower_user_id, followee_user_id) [pk, name: "pk_follows_pair"]
+    (followee_user_id) [name: "idx_follows_followee"]
+  }
+
+  Note: 'Подписка: follower -> followee'
+}
