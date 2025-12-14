@@ -1,112 +1,125 @@
 openapi: 3.0.3
 info:
-  title: Social Feed API
-  version: "1.0.0"
+  title: Travel Social Network API
+  version: "1.0.1"
   description: |
-    Мини-соцсеть для публикации постов, комментариев, оценок и подписок.
+    REST API для мини‑соцсети путешественников.
 
-    Функциональные требования:
-      - Публиковать посты.
-      - Оставлять комментарии к постам.
-      - Оценивать посты и комментарии других пользователей.
-      - Подписываться на уведомления об активности (публикация постов) других пользователей.
-      - Смотреть ленты других пользователей (DESC).
-      - Смотреть агрегированную ленту из постов пользователей, на которых есть активная подписка.
-
-    Нефункциональные требования (для справки):
-      - DAU ≈ 10 000 000.
-      - Регион: СНГ.
-      - Availability: 99.99%.
-      - Средний размер поста: ~5 MB.
-      - Оценочная нагрузка: RPS ≈ 2 546.
+    Основные фичи (из требований):
+      - публикация постов с привязкой к месту (place) и фотографиями
+      - комментарии и реакции (оценка) постов
+      - подписка на других путешественников
+      - просмотр ленты пользователя и домашней ленты по подпискам (DESC)
+      - поиск/просмотр популярных мест и постов по месту
 
 servers:
   - url: https://api.example.com
-    description: Production server (example)
+    description: Example server
 
 tags:
-  - name: post
-    description: Работа с постами
-  - name: comment
-    description: Работа с комментариями
-  - name: rating
-    description: Оценки постов и комментариев
-  - name: subscription
-    description: Подписки на активность пользователей
+  - name: posts
+    description: Посты
+  - name: comments
+    description: Комментарии
+  - name: reactions
+    description: Реакции/оценки постов
+  - name: follows
+    description: Подписки (follow)
   - name: feed
-    description: Ленты новостей
+    description: Лента
+  - name: places
+    description: Места (локации)
+  - name: media
+    description: Загрузка медиа
 
 paths:
-  /v1/post:
+  /v1/media:
     post:
-      tags: [post]
-      summary: Публикация поста
+      tags: [media]
+      summary: Загрузка медиафайла
       description: |
-        Пользователь публикует новый пост. Поддерживает загрузку медиа (до ~5 MB).
+        Загрузка изображения/видео. Возвращает media_id и URL (например, CDN/S3).
+        Нужна, чтобы в createPost не тащить бинарь, а привязывать уже загруженные media_id.
       requestBody:
         required: true
         content:
           multipart/form-data:
             schema:
               type: object
-              required:
-                - user_id
+              required: [file]
               properties:
-                user_id:
-                  type: integer
-                  format: int64
-                  example: 1
-                  description: ID автора поста.
-                text:
-                  type: string
-                  description: Текст поста.
-                media:
+                file:
                   type: string
                   format: binary
-                  description: Файл изображения/видео (опционально).
+                  description: Файл изображения/видео.
       responses:
         "201":
-          description: Пост успешно создан.
+          description: Медиа загружено.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Post"
+                $ref: "#/components/schemas/Media"
         "400":
-          description: Неверный запрос.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
 
-  /v1/comment/{post_id}:
+  /v1/posts:
     post:
-      tags: [comment]
-      summary: Создание комментария к посту
-      parameters:
-        - name: post_id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: ID поста, к которому оставляется комментарий.
+      tags: [posts]
+      summary: Публикация поста
+      description: |
+        Создание поста. Фото прикрепляются через media_ids (см. POST /v1/media).
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
-              required:
-                - message
-              properties:
-                message:
-                  type: string
-                  example: "go v cs"
-                  description: Текст комментария.
-                user_id:
-                  type: integer
-                  format: int64
-                  description: ID автора комментария.
+              $ref: "#/components/schemas/PostCreateRequest"
+      responses:
+        "201":
+          description: Пост создан.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Post"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/posts/{post_id}:
+    get:
+      tags: [posts]
+      summary: Получить пост по id
+      parameters:
+        - $ref: "#/components/parameters/PostId"
+      responses:
+        "200":
+          description: Пост.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Post"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/posts/{post_id}/comments:
+    post:
+      tags: [comments]
+      summary: Создать комментарий к посту
+      parameters:
+        - $ref: "#/components/parameters/PostId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CommentCreateRequest"
       responses:
         "201":
           description: Комментарий создан.
@@ -115,140 +128,20 @@ paths:
               schema:
                 $ref: "#/components/schemas/Comment"
         "400":
-          description: Неверный запрос.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
+          $ref: "#/components/responses/BadRequest"
         "404":
-          description: Пост не найден.
-
-  /v1/post/rating/{post_id}:
-    put:
-      tags: [rating]
-      summary: Оценка поста
-      description: Пользователь ставит лайк/дизлайк посту.
-      parameters:
-        - name: post_id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: ID поста для оценки.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/RatingRequest"
-      responses:
-        "200":
-          description: Оценка поста обновлена.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/RatingResponse"
-        "400":
-          description: Неверный запрос.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        "404":
-          description: Пост не найден.
-
-  /v1/comment/rating/{comment_id}:
-    put:
-      tags: [rating]
-      summary: Оценка комментария
-      description: Пользователь ставит лайк/дизлайк комментарию.
-      parameters:
-        - name: comment_id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: ID комментария для оценки.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/RatingRequest"
-      responses:
-        "200":
-          description: Оценка комментария обновлена.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/RatingResponse"
-        "400":
-          description: Неверный запрос.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        "404":
-          description: Комментарий не найден.
-
-  /v1/subscribe/activity/{user_id}:
-    post:
-      tags: [subscription]
-      summary: Подписка на активность пользователя
-      description: |
-        Подписаться или отписаться от уведомлений об активности (новые посты) указанного пользователя.
-      parameters:
-        - name: user_id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: ID пользователя, на которого оформляется подписка.
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                subscribe:
-                  type: boolean
-                  default: true
-                  description: true — подписаться, false — отписаться.
-      responses:
-        "200":
-          description: Статус подписки обновлён.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/SubscriptionStatus"
-        "400":
-          description: Неверный запрос.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        "404":
-          description: Пользователь не найден.
-
-  /v1/feed/{user_id}:
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
     get:
-      tags: [feed]
-      summary: Лента постов пользователя
+      tags: [comments]
+      summary: Читать комментарии к посту
       description: |
-        Возвращает ленту постов конкретного пользователя.
-        Поддерживает сортировку по дате (DESC/ASC). По требованиям — DESC по умолчанию.
+        Чтение комментариев к посту (DESC по created_at по умолчанию).
       parameters:
-        - name: user_id
-          in: path
-          required: true
-          schema:
-            type: integer
-            format: int64
-          description: ID пользователя, чью ленту просматриваем.
+        - $ref: "#/components/parameters/PostId"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
         - name: sort
           in: query
           required: false
@@ -256,187 +149,498 @@ paths:
             type: string
             enum: [asc, desc]
             default: desc
-          description: Порядок сортировки по дате создания поста.
-        - name: page-num
-          in: query
-          required: false
-          schema:
-            type: integer
-            minimum: 1
-            default: 1
-          description: Номер страницы (пагинация по ~20 постов).
-        - name: page-size
-          in: query
-          required: false
-          schema:
-            type: integer
-            minimum: 1
-            maximum: 100
-            default: 20
-          description: Количество постов на странице.
       responses:
         "200":
-          description: Лента пользователя.
+          description: Страница комментариев.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CommentsPage"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/posts/{post_id}/reactions/{user_id}:
+    put:
+      tags: [reactions]
+      summary: Поставить/обновить реакцию (оценку) поста
+      description: |
+        PUT сделан намеренно: реакция пользователя на пост уникальна,
+        операция идемпотентна (повторный PUT с тем же value не меняет состояние).
+      parameters:
+        - $ref: "#/components/parameters/PostId"
+        - $ref: "#/components/parameters/UserId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReactionUpsertRequest"
+      responses:
+        "200":
+          description: Реакция обновлена. Возвращается агрегат по посту.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReactionSummary"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      tags: [reactions]
+      summary: Удалить реакцию пользователя на пост
+      parameters:
+        - $ref: "#/components/parameters/PostId"
+        - $ref: "#/components/parameters/UserId"
+      responses:
+        "200":
+          description: Реакция удалена. Возвращается агрегат по посту.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReactionSummary"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/posts/{post_id}/reactions:
+    get:
+      tags: [reactions]
+      summary: Получить агрегат реакций по посту
+      description: |
+        Если в ленте/посте уже отдаем counts — эта ручка может быть не обязательной,
+        но добавлена для явности (в ревью спрашивали про чтение реакций).
+      parameters:
+        - $ref: "#/components/parameters/PostId"
+      responses:
+        "200":
+          description: Агрегат реакций.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReactionSummary"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/users/{user_id}/follows/{target_user_id}:
+    put:
+      tags: [follows]
+      summary: Подписаться на пользователя (follow)
+      description: |
+        Подписка на другого путешественника, чтобы видеть его посты в домашней ленте.
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+        - name: target_user_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: ID пользователя, на которого подписываемся.
+      responses:
+        "200":
+          description: Подписка создана/уже существовала.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FollowStatus"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      tags: [follows]
+      summary: Отписаться от пользователя (unfollow)
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+        - name: target_user_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: ID пользователя, от которого отписываемся.
+      responses:
+        "200":
+          description: Подписка удалена (или уже отсутствовала).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FollowStatus"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/feed:
+    get:
+      tags: [feed]
+      summary: Получить ленту
+      description: |
+        Одна обобщенная ручка для лент (в ревью просили объединить).
+        - scope=user: лента конкретного автора (нужен author_id)
+        - scope=subscriptions: домашняя лента пользователя по его подпискам (нужен user_id)
+      parameters:
+        - name: scope
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [user, subscriptions]
+        - name: user_id
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int64
+          description: |
+            Viewer user_id. Обязателен для scope=subscriptions.
+        - name: author_id
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int64
+          description: |
+            Автор, чьи посты читаем. Обязателен для scope=user.
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+      responses:
+        "200":
+          description: Страница ленты (DESC по created_at).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeedPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/places:
+    get:
+      tags: [places]
+      summary: Поиск мест / популярные места
+      description: |
+        Поиск мест. Если query пустой, можно отдавать популярные места (по умолчанию sort=popular).
+      parameters:
+        - name: query
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Текстовый поиск по названию места.
+        - name: sort
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [popular, relevance]
+            default: popular
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+      responses:
+        "200":
+          description: Список мест.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlacesPage"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/places/{place_id}/posts:
+    get:
+      tags: [places]
+      summary: Посты по месту
+      parameters:
+        - name: place_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "200":
+          description: Страница постов по месту (DESC).
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/FeedPage"
         "404":
-          description: Пользователь не найден.
-
-  /v1/feed/subscribers:
-    get:
-      tags: [feed]
-      summary: Агрегированная лента подписок
-      description: |
-        Возвращает агрегированную ленту из постов пользователей, на которых есть активная подписка.
-      parameters:
-        - name: page-num
-          in: query
-          required: false
-          schema:
-            type: integer
-            minimum: 1
-            default: 1
-          description: Номер страницы.
-        - name: page-size
-          in: query
-          required: false
-          schema:
-            type: integer
-            minimum: 1
-            maximum: 100
-            default: 21
-          description: Количество постов на странице. В примере — 21.
-      responses:
-        "200":
-          description: Агрегированная лента подписок.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/FeedPage"
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
 
 components:
+  parameters:
+    PostId:
+      name: post_id
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+    UserId:
+      name: user_id
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+    Page:
+      name: page
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    PageSize:
+      name: page_size
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+
+  responses:
+    BadRequest:
+      description: Неверный запрос.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: Сущность не найдена.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    InternalError:
+      description: Внутренняя ошибка сервиса.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
   schemas:
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          example: "bad_request"
+        message:
+          type: string
+          example: "Validation error"
+
+    Media:
+      type: object
+      required: [id, url]
+      properties:
+        id:
+          type: string
+          example: "med_01HZX..."
+        url:
+          type: string
+          format: uri
+          example: "https://cdn.example.com/media/med_01HZX....jpg"
+
+    PostCreateRequest:
+      type: object
+      required: [user_id, place_id]
+      properties:
+        user_id:
+          type: integer
+          format: int64
+          example: 1
+        place_id:
+          type: integer
+          format: int64
+          example: 101
+          description: Привязка к месту путешествия.
+        text:
+          type: string
+          example: "Красивый закат у моря"
+        media_ids:
+          type: array
+          items:
+            type: string
+          description: Список ранее загруженных media_id.
+
     Post:
       type: object
+      required: [id, user_id, place_id, created_at, reaction_summary, comments_count]
       properties:
         id:
           type: integer
           format: int64
+          example: 1001
         user_id:
           type: integer
           format: int64
+          example: 1
+        place_id:
+          type: integer
+          format: int64
+          example: 101
         text:
           type: string
-        media_url:
-          type: string
-          format: uri
           nullable: true
+        media:
+          type: array
+          items:
+            $ref: "#/components/schemas/Media"
         created_at:
           type: string
           format: date-time
-        rating:
+        reaction_summary:
+          $ref: "#/components/schemas/ReactionSummary"
+        comments_count:
           type: integer
-          description: Суммарный рейтинг поста (лайки - дизлайки).
-      required: [id, user_id, text, created_at]
+          example: 12
+
+    CommentCreateRequest:
+      type: object
+      required: [user_id, message]
+      properties:
+        user_id:
+          type: integer
+          format: int64
+          example: 2
+        message:
+          type: string
+          example: "Кайф! Где это?"
 
     Comment:
       type: object
+      required: [id, post_id, user_id, message, created_at]
       properties:
         id:
           type: integer
           format: int64
+          example: 9001
         post_id:
           type: integer
           format: int64
+          example: 1001
         user_id:
           type: integer
           format: int64
+          example: 2
         message:
           type: string
         created_at:
           type: string
           format: date-time
-        rating:
-          type: integer
-          description: Суммарный рейтинг комментария.
-      required: [id, post_id, user_id, message, created_at]
 
-    RatingRequest:
+    CommentsPage:
       type: object
-      description: Запрос на выставление оценки.
-      required:
-        - user_id
-        - value
+      required: [items, page, page_size]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Comment"
+        page:
+          type: integer
+        page_size:
+          type: integer
+
+    ReactionUpsertRequest:
+      type: object
+      required: [value]
+      properties:
+        value:
+          type: integer
+          enum: [-1, 1]
+          description: 1 — лайк, -1 — дизлайк
+
+    ReactionSummary:
+      type: object
+      required: [likes, dislikes, score]
+      properties:
+        likes:
+          type: integer
+          example: 120
+        dislikes:
+          type: integer
+          example: 7
+        score:
+          type: integer
+          description: likes - dislikes
+          example: 113
+
+    FollowStatus:
+      type: object
+      required: [user_id, target_user_id, following]
       properties:
         user_id:
           type: integer
           format: int64
-          description: ID пользователя, ставящего оценку.
-        value:
-          type: integer
-          enum: [-1, 1]
-          description: |
-            Значение оценки: 1 — лайк, -1 — дизлайк.
-
-    RatingResponse:
-      type: object
-      properties:
-        total_rating:
-          type: integer
-          description: Новый суммарный рейтинг сущности.
-      required: [total_rating]
-
-    SubscriptionStatus:
-      type: object
-      properties:
         target_user_id:
           type: integer
           format: int64
-        subscribed:
+        following:
           type: boolean
-          description: Текущий статус подписки после операции.
-      required: [target_user_id, subscribed]
+          example: true
 
     FeedItem:
       type: object
-      description: Элемент ленты (пост + базовая информация об авторе).
+      required: [post]
       properties:
         post:
           $ref: "#/components/schemas/Post"
-        author:
-          type: object
-          properties:
-            id:
-              type: integer
-              format: int64
-            name:
-              type: string
-          required: [id]
-      required: [post]
 
     FeedPage:
       type: object
+      required: [items, page, page_size]
       properties:
         items:
           type: array
           items:
             $ref: "#/components/schemas/FeedItem"
-        page_num:
+        page:
           type: integer
         page_size:
           type: integer
-        total:
-          type: integer
-          description: Общее количество элементов (может быть приблизительным).
-      required: [items, page_num, page_size]
 
-    Error:
+    Place:
       type: object
+      required: [id, name]
       properties:
-        code:
+        id:
+          type: integer
+          format: int64
+          example: 101
+        name:
           type: string
-        message:
+          example: "Париж"
+        country:
           type: string
-      required: [code, message]
+          nullable: true
+          example: "Франция"
+
+    PlacesPage:
+      type: object
+      required: [items, page, page_size]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Place"
+        page:
+          type: integer
+        page_size:
+          type: integer
